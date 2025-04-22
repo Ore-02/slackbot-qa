@@ -60,7 +60,7 @@ class SimpleVectorStore:
                 scored_docs.append((score, doc))
         
         # Sort by score (highest first)
-        scored_docs.sort(reverse=True)
+        scored_docs.sort(key=lambda x: x[0], reverse=True)
         
         # Convert to LangChain Document format
         results = []
