@@ -8,6 +8,7 @@ from slack_sdk.errors import SlackApiError
 from pdf_processor import extract_text_from_pdf, process_pdf_file
 from vector_store import get_vector_store, add_texts_to_vector_store, search_vector_store
 from gemini_client import generate_answer
+from processed_files import get_file_tracker
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +22,18 @@ slack_app = App(
 
 # Create WebClient instance
 slack_client = WebClient(token=os.environ.get("SLACK_BOT_TOKEN"))
+
+# Store our own bot info
+BOT_ID = None
+try:
+    auth_test = slack_client.auth_test()
+    BOT_ID = auth_test["bot_id"]
+    logger.info(f"Bot ID: {BOT_ID}")
+except SlackApiError as e:
+    logger.error(f"Error obtaining bot ID: {e}")
+
+# Initialize the file tracker
+file_tracker = get_file_tracker()
 
 def download_pdf(file_url, file_id, file_name):
     """Download a PDF file from Slack"""
@@ -47,19 +60,20 @@ def download_pdf(file_url, file_id, file_name):
         logger.error(f"Error downloading PDF: {e}")
         return None
 
-def process_pdf(file_path, file_id, file_name, channel_id=None, ts=None):
+def process_pdf(file_path, file_id, file_name, channel_id=None, ts=None, silent=True):
     """Process a PDF file and store its content in the vector database"""
     try:
         # Extract text from PDF
         text_chunks = extract_text_from_pdf(file_path)
         
         if not text_chunks:
-            if channel_id and ts:
+            if channel_id and ts and not silent:
                 slack_client.chat_postMessage(
                     channel=channel_id,
                     thread_ts=ts,
                     text=f"I couldn't extract any text from the PDF file '{file_name}'."
                 )
+            logger.warning(f"No text extracted from PDF: {file_name}")
             return
         
         # Add PDF chunks to vector store with metadata
@@ -67,8 +81,8 @@ def process_pdf(file_path, file_id, file_name, channel_id=None, ts=None):
         metadata = [{"source": file_name, "file_id": file_id, "page": i} for i in range(len(text_chunks))]
         add_texts_to_vector_store(vector_store, text_chunks, metadata)
         
-        # Send confirmation message if channel and timestamp are provided
-        if channel_id and ts:
+        # Send confirmation message if requested and channel info is provided
+        if channel_id and ts and not silent:
             slack_client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=ts,
@@ -81,7 +95,7 @@ def process_pdf(file_path, file_id, file_name, channel_id=None, ts=None):
             
     except Exception as e:
         logger.error(f"Error processing PDF: {e}")
-        if channel_id and ts:
+        if channel_id and ts and not silent:
             slack_client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=ts,
@@ -94,6 +108,11 @@ def handle_file_shared(event, say):
     try:
         file_id = event.get("file_id")
         
+        # Skip if already processed
+        if file_tracker.is_processed(file_id):
+            logger.info(f"Skipping already processed file: {file_id}")
+            return
+        
         # Get file info
         file_info = slack_client.files_info(file=file_id)
         file = file_info["file"]
@@ -102,13 +121,13 @@ def handle_file_shared(event, say):
         if file["filetype"] != "pdf":
             return
         
-        channel_id = event.get("channel_id")
-        say(f"I noticed a PDF file '{file['name']}'. I'll process it so you can ask questions about it later.")
-        
-        # Download and process the PDF
+        # Download and process the PDF silently
+        logger.info(f"Processing shared PDF file: {file['name']}")
         file_path = download_pdf(file["url_private"], file_id, file["name"])
         if file_path:
-            process_pdf(file_path, file_id, file["name"], channel_id, event.get("event_ts"))
+            # Process silently without sending notifications
+            process_pdf(file_path, file_id, file["name"])
+            file_tracker.mark_as_processed(file_id, file["name"])
     
     except SlackApiError as e:
         logger.error(f"Error handling file shared event: {e}")
@@ -130,19 +149,24 @@ def handle_message_events(body, logger):
     if "files" in event:
         for file in event["files"]:
             if file.get("filetype") == "pdf":
-                # Respond in thread
-                slack_client.chat_postMessage(
-                    channel=channel_id,
-                    thread_ts=thread_ts,
-                    text=f"I noticed a PDF file '{file['name']}'. I'll process it so you can ask questions about it later."
-                )
+                file_id = file.get("id")
                 
-                # Download and process the PDF
-                file_path = download_pdf(file["url_private"], file["id"], file["name"])
+                # Skip if already processed
+                if file_tracker.is_processed(file_id):
+                    logger.info(f"Skipping already processed file: {file['name']}")
+                    continue
+                
+                # Download and process the PDF silently
+                logger.info(f"Processing PDF from message: {file['name']}")
+                file_path = download_pdf(file["url_private"], file_id, file["name"])
                 if file_path:
-                    process_pdf(file_path, file["id"], file["name"], channel_id, thread_ts)
-        # PDF handling complete, no need to process for question answering
-        return
+                    # Process silently without sending notifications
+                    process_pdf(file_path, file_id, file["name"])
+                    file_tracker.mark_as_processed(file_id, file["name"])
+        
+        # If this message only contained files, don't process as a question
+        if not text.strip():
+            return
     
     # Handle messages in DMs
     channel_type = event.get("channel_type", "")
@@ -164,7 +188,7 @@ def handle_message_events(body, logger):
             # Check if bot is in the thread
             bot_in_thread = False
             for message in thread_history.get("messages", []):
-                if message.get("bot_id") == slack_app.client.bot_id:
+                if message.get("bot_id") == BOT_ID:
                     bot_in_thread = True
                     break
             
@@ -252,36 +276,69 @@ def scan_existing_pdfs():
     try:
         logger.info("Starting scan for existing PDF files...")
         
-        # Get list of files in the workspace
-        response = slack_client.files_list(types="pdf", limit=10)  # Limit to 10 files per scan
-        files = response["files"]
+        # Get list of all PDF files in the workspace
+        # Use pagination to get all files (up to a reasonable limit)
+        cursor = None
+        all_files = []
+        max_pages = 5  # Limit to 5 pages (500 files) for safety
         
-        logger.info(f"Found {len(files)} PDF files to process.")
-        
-        # Process a limited number of PDF files to avoid memory issues
-        max_files = min(len(files), 3)  # Process at most 3 files
-        
-        for i in range(max_files):
-            file = files[i]
+        for _ in range(max_pages):
             try:
-                # Check if file has already been processed
-                # Note: In a production app, you would maintain a record of processed files
-                # For simplicity, we're processing a limited number of files here
+                if cursor:
+                    response = slack_client.files_list(types="pdf", limit=100, cursor=cursor)
+                else:
+                    response = slack_client.files_list(types="pdf", limit=100)
                 
-                logger.info(f"Processing PDF {i+1}/{max_files}: {file['name']}")
-                file_path = download_pdf(file["url_private"], file["id"], file["name"])
+                files = response.get("files", [])
+                all_files.extend(files)
+                
+                # Check if there are more files
+                cursor = response.get("response_metadata", {}).get("next_cursor")
+                if not cursor:
+                    break
+                    
+                # Avoid hitting rate limits
+                time.sleep(1)
+            except SlackApiError as e:
+                logger.error(f"Error listing files: {e}")
+                break
+        
+        logger.info(f"Found {len(all_files)} total PDF files.")
+        
+        # Process files that haven't been processed yet
+        processed_count = 0
+        for i, file in enumerate(all_files):
+            file_id = file.get("id")
+            file_name = file.get("name")
+            
+            try:
+                # Skip files that have already been processed
+                if file_tracker.is_processed(file_id):
+                    logger.info(f"Skipping already processed PDF: {file_name}")
+                    continue
+                
+                logger.info(f"Processing PDF {i+1}/{len(all_files)}: {file_name}")
+                file_path = download_pdf(file["url_private"], file_id, file_name)
+                
                 if file_path:
-                    # Process with reduced chunk size and overlap for memory efficiency
-                    process_pdf(file_path, file["id"], file["name"])
+                    # Process the PDF silently (no channel notifications)
+                    process_pdf(file_path, file_id, file_name)
+                    file_tracker.mark_as_processed(file_id, file_name)
+                    processed_count += 1
                     
                     # Give the system time to clear memory
                     time.sleep(2)
+                    
+                    # Process in smaller batches to avoid memory issues
+                    if processed_count % 5 == 0:
+                        logger.info(f"Processed {processed_count} files, taking a short break...")
+                        time.sleep(10)  # Longer break every 5 files
             except Exception as e:
-                logger.error(f"Error processing existing PDF {file['name']}: {e}")
+                logger.error(f"Error processing existing PDF {file_name}: {e}")
         
-        logger.info(f"Completed scanning {max_files} of {len(files)} existing PDF files.")
+        logger.info(f"Completed scanning PDF files. Processed {processed_count} new files.")
     
-    except SlackApiError as e:
+    except Exception as e:
         logger.error(f"Error scanning existing PDFs: {e}")
 
 # Start scanning existing PDFs in a separate thread when the app starts

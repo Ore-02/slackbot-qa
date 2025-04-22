@@ -12,6 +12,10 @@ A Python-based Slackbot that monitors PDF uploads, embeds their content in a vec
 - **Source references**: Provides citations to source PDF documents
 - **Thread support**: Continues conversations in threads for focused discussions
 - **Direct message support**: Answers questions in DMs for private queries
+- **Silent processing**: Processes PDFs in the background without notifications
+- **Duplicate prevention**: Tracks processed files to avoid duplicate processing
+- **Complete workspace scanning**: Indexes all existing PDFs on startup
+- **Challenge response handling**: Properly handles Slack's URL verification challenges
 
 ## Setup Instructions
 
@@ -78,10 +82,12 @@ python main.py
 
 ### Processing PDFs
 
-The bot automatically processes PDFs in these scenarios:
+The bot automatically processes PDFs in these scenarios (silently, without sending notifications):
 1. When a PDF is shared in a channel where the bot is present
 2. When a PDF is uploaded directly to a channel where the bot is present
-3. When the bot starts, it scans for existing PDFs in the workspace
+3. When the bot starts, it scans for all existing PDFs in the workspace
+
+The bot tracks which files have been processed to avoid duplicate processing, allowing efficient incremental updates over time.
 
 ### Asking Questions
 
@@ -114,7 +120,8 @@ The bot will:
 - **Flask App (`app.py`)**: HTTP server that handles Slack events
 - **Slack Bot (`slack_bot.py`)**: Core logic for Slack interactions and message handling
 - **PDF Processor (`pdf_processor.py`)**: Extracts and chunks text from PDF files
-- **Vector Store (`vector_store.py`)**: Manages vector embeddings and similarity search
+- **Vector Store (`vector_store.py`)**: Manages document storage and similarity search
+- **Processed Files (`processed_files.py`)**: Tracks processed PDFs to avoid duplication
 - **Gemini Client (`gemini_client.py`)**: Interface with Google's Generative AI
 
 ### Data Flow
