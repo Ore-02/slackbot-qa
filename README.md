@@ -56,6 +56,8 @@ SESSION_SECRET=your-session-secret
 1. Deploy the application to a server with a public URL
 2. In your Slack App settings, go to "Event Subscriptions" and enable events
 3. Set the Request URL to `https://your-domain.com/slack/events`
+   - The application automatically handles Slack's URL verification challenge
+   - If verification fails, ensure your server is publicly accessible and returning responses correctly
 4. Subscribe to the following bot events:
    - `app_mention`
    - `message.im`
