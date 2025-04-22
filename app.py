@@ -22,7 +22,8 @@ handler = SlackRequestHandler(slack_app)
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
     """Endpoint for handling Slack events"""
-    return handler.handle(request=app.request)
+    from flask import request
+    return handler.handle(request=request)
 
 @app.route("/", methods=["GET"])
 def home():

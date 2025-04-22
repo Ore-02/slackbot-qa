@@ -6,7 +6,7 @@ A Python-based Slackbot that monitors PDF uploads, embeds their content in a vec
 
 - **Automatic PDF monitoring**: Detects PDF uploads across the entire Slack workspace
 - **Content extraction**: Extracts and processes text from PDFs using pdfplumber
-- **Vector database storage**: Stores embeddings and metadata in ChromaDB for efficient semantic search
+- **Text storage and search**: Stores documents with metadata and implements keyword-based search
 - **Question answering**: Answers user questions by finding relevant PDF content
 - **AI-powered responses**: Uses Google's Gemini 1.5 Flash model to generate high-quality answers
 - **Source references**: Provides citations to source PDF documents
@@ -119,8 +119,8 @@ The bot will:
 
 1. User uploads a PDF or asks a question
 2. Slack events API sends an event to the Flask server
-3. PDF files are processed, chunked, and stored in ChromaDB
-4. For questions, relevant chunks are retrieved from ChromaDB
+3. PDF files are processed, chunked, and stored in a simple document store
+4. For questions, relevant chunks are retrieved using keyword matching
 5. Gemini model generates an answer based on the relevant content
 6. Response is sent back to the user in Slack
 
