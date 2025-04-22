@@ -7,7 +7,7 @@ from typing import List, Optional
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def extract_text_from_pdf(file_path: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
+def extract_text_from_pdf(file_path: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
     """
     Extract text from a PDF file and split it into chunks
     
@@ -24,44 +24,67 @@ def extract_text_from_pdf(file_path: str, chunk_size: int = 1000, chunk_overlap:
             logger.error(f"PDF file not found: {file_path}")
             return []
         
-        all_text = ""
+        chunks = []
         
+        # Process page by page to avoid loading the entire document into memory
         with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    all_text += text + "\n\n"
+            # Limit to max 50 pages for memory reasons
+            max_pages = min(len(pdf.pages), 50)
+            
+            # Process page by page instead of loading all text at once
+            current_chunk = ""
+            
+            for page_num in range(max_pages):
+                try:
+                    # Get one page at a time
+                    page = pdf.pages[page_num]
+                    
+                    # Extract text from page
+                    text = page.extract_text() or ""
+                    
+                    if not text.strip():
+                        continue
+                        
+                    # Add page separator
+                    page_text = f"\n\n--- Page {page_num + 1} ---\n\n{text}"
+                    
+                    # Process this page's text into chunks
+                    current_chunk += page_text
+                    
+                    # If current chunk exceeds chunk size, split it
+                    while len(current_chunk) >= chunk_size:
+                        # Find a good breaking point
+                        end_pos = chunk_size
+                        if len(current_chunk) > end_pos:
+                            # Try to find a sentence end or paragraph break
+                            for delimiter in ["\n\n", ".\n", ". ", ".\n\n"]:
+                                pos = current_chunk.rfind(delimiter, 0, end_pos + 100)
+                                if pos > end_pos - 200 and pos != -1:
+                                    end_pos = pos + len(delimiter)
+                                    break
+                        
+                        # Extract the chunk
+                        chunk = current_chunk[:end_pos].strip()
+                        if chunk:
+                            chunks.append(chunk)
+                        
+                        # Keep the remainder with overlap
+                        overlap_start = max(0, end_pos - chunk_overlap)
+                        current_chunk = current_chunk[overlap_start:]
+                
+                except Exception as e:
+                    logger.warning(f"Error processing page {page_num} of {file_path}: {str(e)}")
+                    continue
+            
+            # Don't forget the last chunk if it has content
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
         
-        if not all_text.strip():
+        if not chunks:
             logger.warning(f"No text extracted from PDF: {file_path}")
             return []
         
-        # Split the text into chunks
-        chunks = []
-        current_pos = 0
-        
-        while current_pos < len(all_text):
-            # Take a chunk of text
-            end_pos = min(current_pos + chunk_size, len(all_text))
-            
-            # If we're not at the end and not at a whitespace, extend to next whitespace
-            if end_pos < len(all_text) and not all_text[end_pos].isspace():
-                # Look for the next whitespace
-                next_space = all_text.find(" ", end_pos)
-                if next_space != -1 and next_space - end_pos < 100:  # Don't extend too far
-                    end_pos = next_space
-            
-            # Add the chunk
-            chunk = all_text[current_pos:end_pos].strip()
-            if chunk:
-                chunks.append(chunk)
-            
-            # Move position with overlap
-            current_pos = end_pos - chunk_overlap
-            if current_pos < 0:
-                current_pos = end_pos  # Avoid infinite loops
-        
-        logger.info(f"Extracted {len(chunks)} chunks from PDF: {file_path}")
+        logger.info(f"Extracted {len(chunks)} chunks from PDF: {file_path} (max {max_pages} pages)")
         return chunks
     
     except Exception as e:

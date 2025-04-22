@@ -253,26 +253,33 @@ def scan_existing_pdfs():
         logger.info("Starting scan for existing PDF files...")
         
         # Get list of files in the workspace
-        response = slack_client.files_list(types="pdf")
+        response = slack_client.files_list(types="pdf", limit=10)  # Limit to 10 files per scan
         files = response["files"]
         
         logger.info(f"Found {len(files)} PDF files to process.")
         
-        # Process each PDF file
-        for file in files:
+        # Process a limited number of PDF files to avoid memory issues
+        max_files = min(len(files), 3)  # Process at most 3 files
+        
+        for i in range(max_files):
+            file = files[i]
             try:
                 # Check if file has already been processed
                 # Note: In a production app, you would maintain a record of processed files
-                # For simplicity, we're processing all files here
+                # For simplicity, we're processing a limited number of files here
                 
+                logger.info(f"Processing PDF {i+1}/{max_files}: {file['name']}")
                 file_path = download_pdf(file["url_private"], file["id"], file["name"])
                 if file_path:
-                    logger.info(f"Processing existing PDF: {file['name']}")
+                    # Process with reduced chunk size and overlap for memory efficiency
                     process_pdf(file_path, file["id"], file["name"])
+                    
+                    # Give the system time to clear memory
+                    time.sleep(2)
             except Exception as e:
                 logger.error(f"Error processing existing PDF {file['name']}: {e}")
         
-        logger.info("Completed scanning existing PDF files.")
+        logger.info(f"Completed scanning {max_files} of {len(files)} existing PDF files.")
     
     except SlackApiError as e:
         logger.error(f"Error scanning existing PDFs: {e}")
