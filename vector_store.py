@@ -7,7 +7,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define constants

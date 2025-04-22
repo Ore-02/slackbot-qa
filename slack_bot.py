@@ -10,7 +10,7 @@ from vector_store import get_vector_store, add_texts_to_vector_store, search_vec
 from gemini_client import generate_answer
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize Slack app
@@ -244,41 +244,8 @@ def handle_app_mentions(body, say):
     import re
     cleaned_text = re.sub(r'<@[A-Z0-9]+>', '', text).strip()
     
-    if not cleaned_text:
-        say(thread_ts=thread_ts, text="Hello! I can answer questions about PDF documents. What would you like to know?")
-        return
-    
-    # Search for relevant chunks
-    vector_store = get_vector_store()
-    relevant_chunks = search_vector_store(vector_store, cleaned_text)
-    
-    if not relevant_chunks:
-        say(thread_ts=thread_ts, text="I don't have any relevant information to answer your question. Please upload PDF documents first.")
-        return
-    
-    # Send processing message
-    say(thread_ts=thread_ts, text="Thinking...")
-    
-    try:
-        # Generate answer using Gemini
-        answer = generate_answer(cleaned_text, relevant_chunks)
-        
-        # Create sources footnote
-        sources = set()
-        for doc in relevant_chunks:
-            if "source" in doc.metadata:
-                sources.add(doc.metadata["source"])
-        
-        source_text = ""
-        if sources:
-            source_text = "\n\n*Sources:* " + ", ".join([f"`{s}`" for s in sources])
-        
-        # Send answer
-        say(thread_ts=thread_ts, text=f"{answer}{source_text}")
-    
-    except Exception as e:
-        logger.error(f"Error generating answer: {e}")
-        say(thread_ts=thread_ts, text=f"Sorry, I encountered an error while trying to answer your question: {str(e)}")
+    # Use the shared process_question function to handle the query
+    process_question(cleaned_text, channel, thread_ts)
 
 def scan_existing_pdfs():
     """Scan and process existing PDF files in the workspace"""

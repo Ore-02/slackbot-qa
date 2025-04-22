@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def extract_text_from_pdf(file_path: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
