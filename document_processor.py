@@ -2,24 +2,21 @@
 Module for processing various document formats
 """
 import os
+import re
 import logging
 import tempfile
-from typing import List, Optional, Dict, Any
+import requests
+from typing import List, Dict, Any, Optional, Tuple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Supported file extensions and their processors
-SUPPORTED_EXTENSIONS = {
-    '.pdf': 'process_pdf',
-    '.docx': 'process_docx',
-    '.txt': 'process_txt',
-    '.md': 'process_txt',
-    '.xlsx': 'process_xlsx'
-}
+# Chunk sizes
+DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_OVERLAP = 100
 
-def extract_text_from_pdf(file_path: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
+def extract_text_from_pdf(file_path: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[str]:
     """
     Extract text from a PDF file and split it into chunks
     
@@ -34,47 +31,61 @@ def extract_text_from_pdf(file_path: str, chunk_size: int = 1000, chunk_overlap:
     try:
         import pdfplumber
         
-        # Limit number of pages to process to avoid memory issues
-        max_pages = 50
-        chunks = []
-        
+        # Open the PDF
         with pdfplumber.open(file_path) as pdf:
-            # Process only the first max_pages
-            num_pages = min(len(pdf.pages), max_pages)
-            
+            # Extract text from each page
             all_text = ""
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                if page_text:
+                    all_text += page_text + "\n\n"
             
-            # First pass: extract text from each page
-            for i in range(num_pages):
-                try:
-                    page = pdf.pages[i]
-                    text = page.extract_text() or ""
-                    if text.strip():
-                        all_text += f"--- Page {i+1} ---\n\n{text}\n\n"
-                except Exception as e:
-                    logger.error(f"Error extracting text from page {i+1}: {str(e)}")
-                    all_text += f"--- Page {i+1} ---\n\n[Error extracting text from this page]\n\n"
+            # Split into chunks with overlap
+            if not all_text.strip():
+                logger.warning(f"No text extracted from PDF: {file_path}")
+                return []
             
-            # Second pass: split into chunks
-            if all_text:
-                # Simple chunking by character count
-                current_chunk = ""
-                for i in range(0, len(all_text), chunk_size - chunk_overlap):
-                    current_chunk = all_text[i:i + chunk_size]
-                    if current_chunk:
-                        chunks.append(current_chunk)
-        
-        if chunks:
-            logger.info(f"Extracted {len(chunks)} chunks from PDF: {file_path} (max {max_pages} pages)")
-        else:
-            logger.warning(f"No text extracted from PDF: {file_path}")
-        
-        return chunks
+            # Clean text: replace multiple newlines, spaces, etc.
+            all_text = re.sub(r'\n{3,}', '\n\n', all_text)
+            all_text = re.sub(r' {3,}', ' ', all_text)
+            
+            # Split text into chunks
+            chunks = []
+            start = 0
+            text_length = len(all_text)
+            
+            while start < text_length:
+                # Define end of chunk with overflow
+                end = min(start + chunk_size, text_length)
+                
+                # If not at the end of the document and not at a natural break, try to find a good break point
+                if end < text_length and all_text[end] not in ('.', '!', '?', '\n'):
+                    # Look for natural break points (sentence ends, paragraphs)
+                    break_point = all_text.rfind('. ', start, end)
+                    if break_point == -1:
+                        break_point = all_text.rfind('! ', start, end)
+                    if break_point == -1:
+                        break_point = all_text.rfind('? ', start, end)
+                    if break_point == -1:
+                        break_point = all_text.rfind('\n', start, end)
+                    
+                    # If found a good break point, use it
+                    if break_point != -1:
+                        end = break_point + 1
+                
+                # Add chunk
+                chunks.append(all_text[start:end].strip())
+                
+                # Move start with overlap
+                start = max(start + chunk_size - chunk_overlap, end - chunk_overlap)
+            
+            return chunks
+    
     except Exception as e:
-        logger.error(f"Error in extract_text_from_pdf: {str(e)}")
+        logger.error(f"Error extracting text from PDF {file_path}: {str(e)}")
         return []
 
-def extract_text_from_docx(file_path: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
+def extract_text_from_docx(file_path: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[str]:
     """
     Extract text from a DOCX file and split it into chunks
     
@@ -89,44 +100,71 @@ def extract_text_from_docx(file_path: str, chunk_size: int = 1000, chunk_overlap
     try:
         import docx
         
-        chunks = []
-        all_text = ""
-        
+        # Open the DOCX
         doc = docx.Document(file_path)
         
         # Extract text from paragraphs
+        all_text = ""
         for para in doc.paragraphs:
-            text = para.text.strip()
-            if text:
-                all_text += text + "\n\n"
+            if para.text:
+                all_text += para.text + "\n"
         
-        # Also extract text from tables
+        # Extract text from tables
         for table in doc.tables:
             for row in table.rows:
-                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                row_text = ""
+                for cell in row.cells:
+                    if cell.text:
+                        row_text += cell.text + " | "
                 if row_text:
-                    all_text += row_text + "\n"
-            all_text += "\n"
-        
-        # Split into chunks
-        if all_text:
-            # Simple chunking by character count
-            for i in range(0, len(all_text), chunk_size - chunk_overlap):
-                current_chunk = all_text[i:i + chunk_size]
-                if current_chunk:
-                    chunks.append(current_chunk)
-        
-        if chunks:
-            logger.info(f"Extracted {len(chunks)} chunks from DOCX: {file_path}")
-        else:
+                    all_text += row_text.rstrip(" | ") + "\n"
+                    
+        # Split into chunks with overlap
+        if not all_text.strip():
             logger.warning(f"No text extracted from DOCX: {file_path}")
+            return []
+        
+        # Clean text: replace multiple newlines, spaces, etc.
+        all_text = re.sub(r'\n{3,}', '\n\n', all_text)
+        all_text = re.sub(r' {3,}', ' ', all_text)
+        
+        # Split text into chunks
+        chunks = []
+        start = 0
+        text_length = len(all_text)
+        
+        while start < text_length:
+            # Define end of chunk with overflow
+            end = min(start + chunk_size, text_length)
+            
+            # If not at the end of the document and not at a natural break, try to find a good break point
+            if end < text_length and all_text[end] not in ('.', '!', '?', '\n'):
+                # Look for natural break points (sentence ends, paragraphs)
+                break_point = all_text.rfind('. ', start, end)
+                if break_point == -1:
+                    break_point = all_text.rfind('! ', start, end)
+                if break_point == -1:
+                    break_point = all_text.rfind('? ', start, end)
+                if break_point == -1:
+                    break_point = all_text.rfind('\n', start, end)
+                
+                # If found a good break point, use it
+                if break_point != -1:
+                    end = break_point + 1
+            
+            # Add chunk
+            chunks.append(all_text[start:end].strip())
+            
+            # Move start with overlap
+            start = max(start + chunk_size - chunk_overlap, end - chunk_overlap)
         
         return chunks
+    
     except Exception as e:
-        logger.error(f"Error in extract_text_from_docx: {str(e)}")
+        logger.error(f"Error extracting text from DOCX {file_path}: {str(e)}")
         return []
 
-def extract_text_from_txt(file_path: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
+def extract_text_from_txt(file_path: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[str]:
     """
     Extract text from a text file (TXT or MD) and split it into chunks
     
@@ -139,30 +177,56 @@ def extract_text_from_txt(file_path: str, chunk_size: int = 1000, chunk_overlap:
         List of text chunks extracted from the text file
     """
     try:
-        chunks = []
-        
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+        # Open and read the file
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             all_text = f.read()
         
-        # Split into chunks
-        if all_text:
-            # Simple chunking by character count
-            for i in range(0, len(all_text), chunk_size - chunk_overlap):
-                current_chunk = all_text[i:i + chunk_size]
-                if current_chunk:
-                    chunks.append(current_chunk)
+        # Split into chunks with overlap
+        if not all_text.strip():
+            logger.warning(f"Empty text file: {file_path}")
+            return []
         
-        if chunks:
-            logger.info(f"Extracted {len(chunks)} chunks from text file: {file_path}")
-        else:
-            logger.warning(f"No text extracted from text file: {file_path}")
+        # Clean text: replace multiple newlines, spaces, etc.
+        all_text = re.sub(r'\n{3,}', '\n\n', all_text)
+        all_text = re.sub(r' {3,}', ' ', all_text)
+        
+        # Split text into chunks
+        chunks = []
+        start = 0
+        text_length = len(all_text)
+        
+        while start < text_length:
+            # Define end of chunk with overflow
+            end = min(start + chunk_size, text_length)
+            
+            # If not at the end of the document and not at a natural break, try to find a good break point
+            if end < text_length and all_text[end] not in ('.', '!', '?', '\n'):
+                # Look for natural break points (sentence ends, paragraphs)
+                break_point = all_text.rfind('. ', start, end)
+                if break_point == -1:
+                    break_point = all_text.rfind('! ', start, end)
+                if break_point == -1:
+                    break_point = all_text.rfind('? ', start, end)
+                if break_point == -1:
+                    break_point = all_text.rfind('\n', start, end)
+                
+                # If found a good break point, use it
+                if break_point != -1:
+                    end = break_point + 1
+            
+            # Add chunk
+            chunks.append(all_text[start:end].strip())
+            
+            # Move start with overlap
+            start = max(start + chunk_size - chunk_overlap, end - chunk_overlap)
         
         return chunks
+    
     except Exception as e:
-        logger.error(f"Error in extract_text_from_txt: {str(e)}")
+        logger.error(f"Error extracting text from text file {file_path}: {str(e)}")
         return []
 
-def extract_text_from_xlsx(file_path: str, chunk_size: int = 1000, chunk_overlap: int = 100) -> List[str]:
+def extract_text_from_xlsx(file_path: str, chunk_size: int = DEFAULT_CHUNK_SIZE, chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> List[str]:
     """
     Extract text from an Excel file and split it into chunks
     
@@ -177,45 +241,63 @@ def extract_text_from_xlsx(file_path: str, chunk_size: int = 1000, chunk_overlap
     try:
         import pandas as pd
         
-        chunks = []
-        all_text = ""
+        # Read Excel file
+        xl = pd.ExcelFile(file_path)
         
-        # Read all sheets
-        xlsx = pd.ExcelFile(file_path)
-        for sheet_name in xlsx.sheet_names:
-            df = pd.read_excel(xlsx, sheet_name)
+        # Process each sheet
+        chunks = []
+        for sheet_name in xl.sheet_names:
+            # Read the sheet
+            df = pd.read_excel(file_path, sheet_name=sheet_name)
             
-            # Add sheet name
-            all_text += f"--- Sheet: {sheet_name} ---\n\n"
+            # Clean NaN values
+            df = df.fillna('')
+            
+            # Convert sheet to text
+            sheet_text = f"Sheet: {sheet_name}\n\n"
             
             # Add column headers
-            all_text += " | ".join(str(col) for col in df.columns) + "\n"
+            headers = " | ".join(str(col) for col in df.columns)
+            sheet_text += headers + "\n" + "-" * len(headers) + "\n"
             
-            # Add separator
-            all_text += "-" * 40 + "\n"
-            
-            # Add rows
+            # Add data rows
             for _, row in df.iterrows():
-                all_text += " | ".join(str(cell) for cell in row) + "\n"
+                row_text = " | ".join(str(val) for val in row)
+                sheet_text += row_text + "\n"
             
-            all_text += "\n\n"
+            # Clean text
+            sheet_text = re.sub(r' {3,}', ' ', sheet_text)
+            
+            # Create chunks by rows to keep context
+            # Each chunk should contain the headers plus a reasonable number of rows
+            rows = sheet_text.split('\n')
+            
+            if len(rows) <= 3:  # Headers only or empty sheet
+                chunks.append(sheet_text)
+                continue
+            
+            headers = rows[0] + "\n" + rows[1] + "\n" + rows[2] + "\n"
+            current_chunk = headers
+            
+            for i in range(3, len(rows)):
+                row = rows[i]
+                
+                # If adding this row would exceed chunk size, save current chunk and start new one
+                if len(current_chunk) + len(row) > chunk_size and len(current_chunk) > len(headers):
+                    chunks.append(current_chunk.strip())
+                    current_chunk = headers + row + "\n"
+                else:
+                    current_chunk += row + "\n"
+            
+            # Add the last chunk if not empty
+            if len(current_chunk) > len(headers):
+                chunks.append(current_chunk.strip())
         
-        # Split into chunks
-        if all_text:
-            # Simple chunking by character count
-            for i in range(0, len(all_text), chunk_size - chunk_overlap):
-                current_chunk = all_text[i:i + chunk_size]
-                if current_chunk:
-                    chunks.append(current_chunk)
-        
-        if chunks:
-            logger.info(f"Extracted {len(chunks)} chunks from Excel: {file_path}")
-        else:
-            logger.warning(f"No text extracted from Excel: {file_path}")
-        
+        logger.info(f"Extracted {len(chunks)} chunks from Excel: {file_path}")
         return chunks
+    
     except Exception as e:
-        logger.error(f"Error in extract_text_from_xlsx: {str(e)}")
+        logger.error(f"Error extracting text from Excel {file_path}: {str(e)}")
         return []
 
 def process_document(file_path: str, file_id: str, file_name: str) -> Optional[List[str]]:
@@ -231,25 +313,21 @@ def process_document(file_path: str, file_id: str, file_name: str) -> Optional[L
         List of text chunks or None if processing failed
     """
     try:
-        _, file_extension = os.path.splitext(file_name.lower())
+        # Get file extension
+        _, extension = os.path.splitext(file_name)
+        extension = extension.lower()
         
-        if file_extension not in SUPPORTED_EXTENSIONS:
-            logger.warning(f"Unsupported file type: {file_extension}")
-            return None
-        
-        # Get the appropriate processing function
-        processor_name = SUPPORTED_EXTENSIONS[file_extension]
-        
-        if processor_name == 'process_pdf':
+        # Extract text based on file type
+        if extension == '.pdf':
             return extract_text_from_pdf(file_path)
-        elif processor_name == 'process_docx':
+        elif extension == '.docx':
             return extract_text_from_docx(file_path)
-        elif processor_name == 'process_txt':
+        elif extension in ['.txt', '.md']:
             return extract_text_from_txt(file_path)
-        elif processor_name == 'process_xlsx':
+        elif extension in ['.xlsx', '.xls']:
             return extract_text_from_xlsx(file_path)
         else:
-            logger.warning(f"No processor found for {file_extension}")
+            logger.warning(f"Unsupported file type: {extension}")
             return None
     
     except Exception as e:
@@ -270,8 +348,6 @@ def download_and_process_file(url: str, file_id: str, file_name: str, headers: D
         List of text chunks or None if processing failed
     """
     try:
-        import requests
-        
         # Create temp directory if it doesn't exist
         if not os.path.exists("temp"):
             os.makedirs("temp")
@@ -279,18 +355,19 @@ def download_and_process_file(url: str, file_id: str, file_name: str, headers: D
         file_path = f"temp/{file_name}"
         
         # Download the file
-        r = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers)
+        
         with open(file_path, "wb") as f:
-            f.write(r.content)
+            f.write(response.content)
         
         # Process the file
-        chunks = process_document(file_path, file_id, file_name)
+        text_chunks = process_document(file_path, file_id, file_name)
         
-        # Clean up: Remove downloaded file
+        # Clean up
         if os.path.exists(file_path):
             os.remove(file_path)
         
-        return chunks
+        return text_chunks
     
     except Exception as e:
         logger.error(f"Error downloading and processing file {file_name}: {str(e)}")

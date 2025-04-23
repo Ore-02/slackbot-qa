@@ -5,26 +5,26 @@ import os
 import json
 import time
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import List, Dict, Any, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
-MEMORY_FILE_PATH = "vector_db/conversations.json"
-MAX_HISTORY_LENGTH = 5  # Number of turns to keep in the conversation history
-MAX_SESSION_AGE = 60 * 60 * 24  # 24 hours in seconds
+VECTOR_DB_PATH = "vector_db"
+CONVERSATIONS_FILE = "conversations.json"
+MAX_CONVERSATION_AGE = 7 * 24 * 60 * 60  # 7 days in seconds
+MAX_MESSAGES_PER_THREAD = 50  # Maximum messages to keep per thread
 
 class ConversationMemory:
     """Class to track and manage conversation memory across different threads"""
-    
+
     def __init__(self):
         """Initialize the memory manager"""
-        self.conversations = {}  # thread_id -> conversation history
-        self.last_access = {}  # thread_id -> timestamp
+        self.conversations = {}  # Map of thread_id -> conversation data
         self._load_from_file()
-    
+
     def add_message(self, thread_id: str, channel_id: str, user: str, text: str, is_bot: bool = False) -> None:
         """
         Add a message to a conversation thread
@@ -36,31 +36,37 @@ class ConversationMemory:
             text: Message text content
             is_bot: Whether the message is from the bot
         """
-        # Create a new conversation if it doesn't exist
+        # Create conversation entry if it doesn't exist
         if thread_id not in self.conversations:
             self.conversations[thread_id] = {
                 "channel_id": channel_id,
-                "messages": []
+                "messages": [],
+                "last_updated": time.time()
             }
         
         # Add the message
-        self.conversations[thread_id]["messages"].append({
-            "timestamp": time.time(),
+        message = {
             "user": user,
             "text": text,
+            "timestamp": time.time(),
             "is_bot": is_bot
-        })
+        }
         
-        # Trim history if needed
-        if len(self.conversations[thread_id]["messages"]) > MAX_HISTORY_LENGTH * 2:  # Keep pairs of user and bot messages
-            self.conversations[thread_id]["messages"] = self.conversations[thread_id]["messages"][-MAX_HISTORY_LENGTH * 2:]
+        # Append to messages list
+        self.conversations[thread_id]["messages"].append(message)
         
-        # Update last access time
-        self.last_access[thread_id] = time.time()
+        # Update last_updated time
+        self.conversations[thread_id]["last_updated"] = time.time()
+        
+        # Limit number of messages per thread to avoid memory issues
+        if len(self.conversations[thread_id]["messages"]) > MAX_MESSAGES_PER_THREAD:
+            # Remove oldest messages
+            excess = len(self.conversations[thread_id]["messages"]) - MAX_MESSAGES_PER_THREAD
+            self.conversations[thread_id]["messages"] = self.conversations[thread_id]["messages"][excess:]
         
         # Save to file
         self._save_to_file()
-    
+
     def get_conversation_history(self, thread_id: str) -> List[Dict[str, Any]]:
         """
         Get the conversation history for a thread
@@ -72,11 +78,14 @@ class ConversationMemory:
             List of message dictionaries
         """
         if thread_id in self.conversations:
-            # Update last access time
-            self.last_access[thread_id] = time.time()
+            # Update last_updated time
+            self.conversations[thread_id]["last_updated"] = time.time()
+            
+            # Return the messages
             return self.conversations[thread_id]["messages"]
+        
         return []
-    
+
     def get_history_as_text(self, thread_id: str) -> str:
         """
         Get the conversation history as formatted text for context
@@ -87,18 +96,17 @@ class ConversationMemory:
         Returns:
             Formatted conversation history text
         """
-        messages = self.get_conversation_history(thread_id)
-        if not messages:
+        if thread_id not in self.conversations:
             return ""
         
         # Format the conversation history
-        formatted_history = "Previous Conversation:\n"
-        for msg in messages:
-            speaker = "Bot" if msg.get("is_bot", False) else "User"
-            formatted_history += f"{speaker}: {msg.get('text', '')}\n"
+        history_text = ""
+        for i, message in enumerate(self.conversations[thread_id]["messages"]):
+            prefix = "🤖 Bot: " if message.get("is_bot", False) else "👤 User: "
+            history_text += f"{prefix}{message.get('text', '')}\n\n"
         
-        return formatted_history
-    
+        return history_text
+
     def clear_conversation(self, thread_id: str) -> None:
         """
         Clear a conversation history
@@ -108,10 +116,8 @@ class ConversationMemory:
         """
         if thread_id in self.conversations:
             del self.conversations[thread_id]
-            if thread_id in self.last_access:
-                del self.last_access[thread_id]
             self._save_to_file()
-    
+
     def cleanup_old_conversations(self) -> int:
         """
         Remove old conversations based on last access time
@@ -119,63 +125,58 @@ class ConversationMemory:
         Returns:
             Number of conversations removed
         """
-        current_time = time.time()
-        threads_to_remove = []
+        now = time.time()
+        removed_count = 0
         
-        for thread_id, last_accessed in self.last_access.items():
-            if current_time - last_accessed > MAX_SESSION_AGE:
-                threads_to_remove.append(thread_id)
+        # Identify old conversations
+        old_threads = []
+        for thread_id, conversation in self.conversations.items():
+            last_updated = conversation.get("last_updated", 0)
+            if now - last_updated > MAX_CONVERSATION_AGE:
+                old_threads.append(thread_id)
         
-        for thread_id in threads_to_remove:
-            if thread_id in self.conversations:
-                del self.conversations[thread_id]
-            del self.last_access[thread_id]
+        # Remove old conversations
+        for thread_id in old_threads:
+            del self.conversations[thread_id]
+            removed_count += 1
         
-        if threads_to_remove:
+        # Save changes if any conversations were removed
+        if removed_count > 0:
             self._save_to_file()
-            
-        return len(threads_to_remove)
-    
+            logger.info(f"Cleaned up {removed_count} old conversations")
+        
+        return removed_count
+
     def _save_to_file(self) -> None:
         """Save conversations to file"""
         try:
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(MEMORY_FILE_PATH), exist_ok=True)
+            if not os.path.exists(VECTOR_DB_PATH):
+                os.makedirs(VECTOR_DB_PATH)
+                
+            file_path = os.path.join(VECTOR_DB_PATH, CONVERSATIONS_FILE)
             
-            data = {
-                "conversations": self.conversations,
-                "last_access": self.last_access
-            }
-            
-            with open(MEMORY_FILE_PATH, 'w') as f:
-                json.dump(data, f)
-            
-            logger.debug(f"Saved {len(self.conversations)} conversations to {MEMORY_FILE_PATH}")
+            with open(file_path, 'w') as f:
+                json.dump(self.conversations, f)
         except Exception as e:
             logger.error(f"Error saving conversations: {str(e)}")
-    
+
     def _load_from_file(self) -> None:
         """Load conversations from file"""
         try:
-            if os.path.exists(MEMORY_FILE_PATH):
-                with open(MEMORY_FILE_PATH, 'r') as f:
-                    data = json.load(f)
+            file_path = os.path.join(VECTOR_DB_PATH, CONVERSATIONS_FILE)
+            
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as f:
+                    self.conversations = json.load(f)
                     
-                self.conversations = data.get("conversations", {})
-                self.last_access = data.get("last_access", {})
-                
-                # Cleanup old conversations
-                removed = self.cleanup_old_conversations()
-                
-                logger.info(f"Loaded {len(self.conversations)} conversations from {MEMORY_FILE_PATH} (removed {removed} old conversations)")
+                logger.info(f"Loaded conversation memory from {file_path}")
             else:
-                logger.info(f"No existing conversation memory found at {MEMORY_FILE_PATH}")
-                self.conversations = {}
-                self.last_access = {}
+                logger.info(f"No existing conversation memory found at {file_path}")
         except Exception as e:
             logger.error(f"Error loading conversations: {str(e)}")
-            self.conversations = {}
-            self.last_access = {}
+
+# Singleton instance
+_memory_manager = None
 
 def get_memory_manager() -> ConversationMemory:
     """
@@ -184,4 +185,9 @@ def get_memory_manager() -> ConversationMemory:
     Returns:
         ConversationMemory instance
     """
-    return ConversationMemory()
+    global _memory_manager
+    
+    if _memory_manager is None:
+        _memory_manager = ConversationMemory()
+    
+    return _memory_manager
