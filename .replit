@@ -2,7 +2,7 @@ modules = ["python-3.11"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["bash", "openssl", "postgresql", "jq"]
+packages = ["bash", "glibcLocales", "jq", "openssl", "postgresql"]
 
 [deployment]
 deploymentTarget = "autoscale"
