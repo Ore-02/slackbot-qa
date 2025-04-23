@@ -1,0 +1,63 @@
+ need to improve my existing Python Slackbot (built with slack_bolt, Gemini 1.5 Flash, and FAISS/ChromaDB) so that it reliably ingests and answers questions from all workspace documents, including PDFs, DOCX, PPTX, XLSX, and TXT, across every channel and DM since the bot was installed. Currently it:
+
+Often misses small-but-specific details in documents (claims “not provided” when it is).
+
+Doesn’t load or index all historical files—only the newest ones.
+
+Returns irrelevant or incorrect “source” attributions in its answers.
+
+Please update the bot with the following features and best practices:
+
+Universal File Ingestion
+
+On startup and at configurable intervals, call client.files_list(types="pdf,docx,pptx,xlsx,txt") to fetch all files uploaded since inception.
+
+Track processed file IDs in a persistent store (e.g. sessions.json or a SQLite table) to avoid re-processing duplicates.
+
+Support parsing:
+
+PDF: use pdfplumber or PyMuPDF with overlapping sliding windows (e.g. 500-token chunks with 50% overlap).
+
+DOCX: use python-docx to extract paragraphs and run the same chunk logic.
+
+PPTX: use python-pptx to grab slide text, chunk slide by slide.
+
+XLSX: use pandas.read_excel() to read each sheet, convert rows and column headers into text blocks, and chunk.
+
+TXT/MD: simple newline splitting with sliding-window chunking.
+
+Robust Embedding & Retrieval
+
+Use sentence-transformers/all-MiniLM-L6-v2 (free) to embed every chunk, storing embeddings persistently in FAISS or ChromaDB.
+
+Store rich metadata with each vector:
+
+file_id, filename, file_type, page_or_slide_number, and chunk start/end indices.
+
+Implement a hybrid search strategy: semantic (vector) search for relevance + keyword/substring filtering to improve precision on small details.
+
+Accurate Source Attribution
+
+When answering, return the top-k chunks along with their metadata.
+
+Format responses so each cited source clearly matches the answer (e.g., “(Source: report.pdf, Slide 3)” or “(Source: data.xlsx, Sheet ‘Coverage’, Row 5)”).
+
+Session & Memory Handling
+
+Keep per-thread memory so follow-ups in the same thread can refer to prior answers.
+
+Silent Background Processing
+
+Do not post messages when files are ingested or re-indexed.
+
+Validation & Logging
+
+Add a /debug status slash command that reports:
+
+Total number of files processed by type.
+
+Total number of chunks indexed.
+
+Date of the last ingestion run.
+
+Log ingestion failures with file IDs and error details in Replit’s console.

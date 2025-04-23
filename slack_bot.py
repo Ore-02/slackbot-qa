@@ -45,6 +45,10 @@ vector_store = get_enhanced_vector_store()
 # Define supported file extensions
 SUPPORTED_FILE_TYPES = ['pdf', 'docx', 'txt', 'md', 'xlsx']
 
+# Define scanning intervals
+SCAN_INTERVAL_MINUTES = 60  # Scan for new documents every hour
+CLEANUP_INTERVAL_DAYS = 7  # Clean up old conversations every week
+
 def download_document(file_url, file_id, file_name):
     """Download a document file from Slack"""
     try:
@@ -448,17 +452,178 @@ def scan_existing_documents():
     except Exception as e:
         logger.error(f"Error scanning existing documents: {e}")
 
-# Start scanning existing documents in a separate thread when the app starts
-def start_scanning_thread():
-    """Start a thread to scan existing documents"""
+# Helper function for one-time scanning (used for testing)
+def run_document_scan_once():
+    """Run a document scan once without scheduling"""
     scan_thread = threading.Thread(target=scan_existing_documents)
     scan_thread.daemon = True
     scan_thread.start()
 
-# Schedule scanning thread to start after a delay
-def schedule_scan():
-    """Schedule the scanning thread to start after a delay"""
-    threading.Timer(10.0, start_scanning_thread).start()
+# Define slash commands
+@slack_app.command("/documents")
+def handle_documents_command(ack, body, respond):
+    """Handle /documents slash command to list all processed documents"""
+    # Acknowledge the command request
+    ack()
+    
+    try:
+        # Get processed files from tracker
+        processed_files = file_tracker._processed_files
+        
+        if not processed_files:
+            respond("No documents have been processed yet.")
+            return
+        
+        # Organize files by type
+        files_by_type = {}
+        for file_id, file_info in processed_files.items():
+            file_name = file_info.get("file_name", "Unknown")
+            # Extract file extension
+            _, ext = os.path.splitext(file_name)
+            ext = ext.lower().lstrip('.')
+            
+            if ext not in files_by_type:
+                files_by_type[ext] = []
+            
+            files_by_type[ext].append(file_name)
+        
+        # Format response
+        response = "*Documents in Memory:*\n\n"
+        
+        total_docs = len(processed_files)
+        response += f"*Total Documents:* {total_docs}\n\n"
+        
+        # Add summary by file type
+        response += "*By File Type:*\n"
+        for file_type, files in files_by_type.items():
+            response += f"• {file_type.upper()}: {len(files)} files\n"
+        
+        response += "\n*Document List:*\n"
+        
+        # Add all documents organized by type
+        for file_type, files in files_by_type.items():
+            response += f"\n*{file_type.upper()} Files:*\n"
+            for i, file_name in enumerate(sorted(files), 1):
+                response += f"{i}. `{file_name}`\n"
+        
+        # Get vector store stats
+        try:
+            doc_count = len(vector_store.documents)
+            response += f"\n*Vector Store:* {doc_count} chunks indexed"
+        except Exception as e:
+            response += f"\n*Vector Store:* Error getting stats - {str(e)}"
+        
+        # Add last scan timestamp
+        last_scan = file_tracker._last_updated
+        if last_scan:
+            from datetime import datetime
+            scan_time = datetime.fromtimestamp(last_scan).strftime('%Y-%m-%d %H:%M:%S')
+            response += f"\n\n*Last Scan:* {scan_time}"
+        
+        # Send response
+        respond(response)
+    
+    except Exception as e:
+        logger.error(f"Error handling /documents command: {str(e)}")
+        respond(f"Error retrieving document list: {str(e)}")
 
-# Schedule the scan when the module is imported
-schedule_scan()
+@slack_app.command("/debug")
+def handle_debug_command(ack, body, respond):
+    """Handle /debug slash command to provide system status"""
+    # Acknowledge the command request
+    ack()
+    
+    try:
+        # Get processed files from tracker
+        processed_files = file_tracker._processed_files
+        
+        # Organize files by type
+        files_by_type = {}
+        for file_id, file_info in processed_files.items():
+            file_name = file_info.get("file_name", "Unknown")
+            # Extract file extension
+            _, ext = os.path.splitext(file_name)
+            ext = ext.lower().lstrip('.')
+            
+            if ext not in files_by_type:
+                files_by_type[ext] = []
+            
+            files_by_type[ext].append(file_name)
+        
+        # Format response
+        response = "*System Status Report:*\n\n"
+        
+        # Add document stats
+        total_docs = len(processed_files)
+        response += f"*Documents:*\n• Total processed: {total_docs}\n"
+        
+        # Add summary by file type
+        for file_type, files in files_by_type.items():
+            response += f"• {file_type.upper()}: {len(files)} files\n"
+        
+        # Get vector store stats
+        try:
+            doc_count = len(vector_store.documents)
+            response += f"\n*Vector Store:*\n• Chunks indexed: {doc_count}\n"
+            
+            # Get memory usage estimate
+            import sys
+            memory_estimate_mb = sys.getsizeof(vector_store.documents) / (1024 * 1024)
+            response += f"• Memory usage (est.): {memory_estimate_mb:.2f} MB\n"
+        except Exception as e:
+            response += f"\n*Vector Store:* Error getting stats - {str(e)}\n"
+        
+        # Get conversation memory stats
+        try:
+            conversation_count = len(memory_manager.conversations)
+            active_threads = sum(1 for c in memory_manager.conversations.values() 
+                               if time.time() - c.get("last_updated", 0) < 24 * 60 * 60)  # Active in last 24h
+            response += f"\n*Conversation Memory:*\n• Active threads: {active_threads}\n• Total threads: {conversation_count}\n"
+        except Exception as e:
+            response += f"\n*Conversation Memory:* Error getting stats - {str(e)}\n"
+        
+        # Add last scan timestamp and scan frequency
+        last_scan = file_tracker._last_updated
+        if last_scan:
+            from datetime import datetime
+            scan_time = datetime.fromtimestamp(last_scan).strftime('%Y-%m-%d %H:%M:%S')
+            response += f"\n*Last Scan:* {scan_time}\n"
+        
+        # Add scanning interval info
+        response += f"*Scan Interval:* {SCAN_INTERVAL_MINUTES} minutes\n"
+        
+        # Add uptime info
+        import os
+        
+        # Send response
+        respond(response)
+    
+    except Exception as e:
+        logger.error(f"Error handling /debug command: {str(e)}")
+        respond(f"Error generating debug report: {str(e)}")
+
+# Scanning and cleanup functions
+def start_periodic_scanning():
+    """Start a thread to scan existing documents and schedule next scan"""
+    scan_thread = threading.Thread(target=scan_existing_documents)
+    scan_thread.daemon = True
+    scan_thread.start()
+    
+    # Schedule the next scan after the configured interval
+    logger.info(f"Scheduling next document scan in {SCAN_INTERVAL_MINUTES} minutes")
+    threading.Timer(SCAN_INTERVAL_MINUTES * 60, start_periodic_scanning).start()
+
+def start_periodic_cleanup():
+    """Clean up old conversations and schedule next cleanup"""
+    try:
+        removed = memory_manager.cleanup_old_conversations()
+        logger.info(f"Cleaned up {removed} old conversation threads")
+    except Exception as e:
+        logger.error(f"Error cleaning up conversations: {str(e)}")
+    
+    # Schedule the next cleanup after the configured interval
+    threading.Timer(CLEANUP_INTERVAL_DAYS * 24 * 60 * 60, start_periodic_cleanup).start()
+
+# Schedule initial tasks with a delay to allow the app to initialize
+threading.Timer(10.0, start_periodic_scanning).start()  # Start first scan after 10 seconds
+threading.Timer(24 * 60 * 60, start_periodic_cleanup).start()  # Start first cleanup after 24 hours
