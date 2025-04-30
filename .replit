@@ -7,7 +7,7 @@ packages = ["bash", "glibcLocales", "jq", "openssl", "postgresql"]
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["sh", "-c", "run = \"python main.py\""]
+run = ["sh", "-c", "python main.py"]
 
 [workflows]
 runButton = "Start Flask App"
