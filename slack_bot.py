@@ -472,7 +472,7 @@ def handle_documents_command(ack, body, respond):
     # Add error handling around the response
     try:
         # Get processed files from tracker
-        processed_files = file_tracker._processed_files
+        processed_files = file_tracker.processed_files
 
         if not processed_files:
             respond("No documents have been processed yet.")
@@ -481,7 +481,7 @@ def handle_documents_command(ack, body, respond):
         # Organize files by type
         files_by_type = {}
         for file_id, file_info in processed_files.items():
-            file_name = file_info.get("file_name", "Unknown")
+            file_name = file_info.get("name", "Unknown")
             # Extract file extension
             _, ext = os.path.splitext(file_name)
             ext = ext.lower().lstrip('.')
