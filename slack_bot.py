@@ -468,8 +468,6 @@ def handle_documents_command(ack, body, respond):
     
     # Add error handling around the response
     try:
-    
-    try:
         # Get processed files from tracker
         processed_files = file_tracker._processed_files
         
