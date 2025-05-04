@@ -362,6 +362,11 @@ def handle_app_mentions(body, say):
 def scan_existing_documents():
     """Scan and process existing document files in the workspace"""
     try:
+        global SCAN_ENABLED
+        if not SCAN_ENABLED:
+            logger.info("Document scanning is disabled")
+            return
+            
         logger.info("Starting scan for existing documents...")
 
         # Build the types string for all supported file types
@@ -537,6 +542,9 @@ def handle_documents_command(ack, body, respond):
             "text": f"Error retrieving document list: {str(e)}"
         })
 
+# Global flag to control document scanning
+SCAN_ENABLED = True
+
 @slack_app.command("/clear-documents")
 def handle_clear_documents_command(ack, body, respond):
     """Handle /clear-documents slash command to delete documents from memory"""
@@ -544,6 +552,7 @@ def handle_clear_documents_command(ack, body, respond):
     ack()
     
     try:
+        global SCAN_ENABLED
         # Get the command text
         text = body.get('text', '').strip().lower()
         
@@ -553,12 +562,29 @@ def handle_clear_documents_command(ack, body, respond):
             file_tracker._processed_files.clear()
             file_tracker._save_to_file()
             
-            # Clear vector store
+            # Clear vector store and its file
             vector_store.documents = []
-            vector_store._build_index()  # Rebuild the index
+            vector_store._build_index()
             vector_store._save_to_file()
             
-            respond("Successfully cleared all documents from memory.")
+            # Clear the storage files
+            if os.path.exists("vector_db/document_store.json"):
+                os.remove("vector_db/document_store.json")
+            if os.path.exists("vector_db/processed_files.json"):
+                os.remove("vector_db/processed_files.json")
+            
+            # Disable scanning
+            SCAN_ENABLED = False
+            
+            respond("Successfully cleared all documents from memory and disabled auto-scanning. Use `/clear-documents scan-on` to re-enable scanning.")
+            
+        elif text == 'scan-on':
+            SCAN_ENABLED = True
+            respond("Document scanning enabled. Documents will be ingested on next scan.")
+            
+        elif text == 'scan-off':
+            SCAN_ENABLED = False
+            respond("Document scanning disabled. Documents will not be automatically ingested.")
             
         elif text:
             # Get document name to delete
