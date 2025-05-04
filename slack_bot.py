@@ -466,6 +466,9 @@ def handle_documents_command(ack, body, respond):
     # Acknowledge the command request immediately
     ack()
     
+    # Get response URL for async response
+    response_url = body.get("response_url")
+    
     # Add error handling around the response
     try:
         # Get processed files from tracker

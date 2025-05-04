@@ -24,7 +24,12 @@ def slack_events():
     """Endpoint for handling Slack events"""
     from flask import request, jsonify, abort
     
-    if not request.is_json and request.headers.get('Content-Type') != 'application/x-www-form-urlencoded':
+    # Handle form data from slash commands
+    if request.headers.get('Content-Type') == 'application/x-www-form-urlencoded':
+        return handler.handle(request)
+        
+    # Handle JSON events
+    if not request.is_json:
         abort(415)
     
     # Handle Slack URL verification challenge
