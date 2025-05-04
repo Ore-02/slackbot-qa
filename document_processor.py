@@ -241,6 +241,23 @@ def extract_text_from_xlsx(file_path: str, chunk_size: int = DEFAULT_CHUNK_SIZE,
     try:
         import pandas as pd
         
+        # Read Excel file with optimizations
+        chunks = []
+        xl = pd.ExcelFile(file_path, engine='openpyxl')
+        
+        for sheet_name in xl.sheet_names:
+            # Read sheet in chunks to handle large files
+            sheet_chunks = pd.read_excel(file_path, sheet_name=sheet_name, engine='openpyxl', chunksize=1000)
+            
+            for chunk_df in sheet_chunks:
+                # Clean and format the chunk
+                chunk_df = chunk_df.fillna('')
+                
+                # Convert chunk to text
+                chunk_text = f"Sheet: {sheet_name}\n\n"
+                chunk_text += chunk_df.to_string(index=False)
+                chunks.append(chunk_text)
+        
         # Read Excel file
         xl = pd.ExcelFile(file_path)
         
