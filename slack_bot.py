@@ -463,8 +463,11 @@ def run_document_scan_once():
 @slack_app.command("/documents")
 def handle_documents_command(ack, body, respond):
     """Handle /documents slash command to list all processed documents"""
-    # Acknowledge the command request
+    # Acknowledge the command request immediately
     ack()
+    
+    # Add error handling around the response
+    try:
     
     try:
         # Get processed files from tracker
@@ -520,12 +523,18 @@ def handle_documents_command(ack, body, respond):
             scan_time = datetime.fromtimestamp(last_scan).strftime('%Y-%m-%d %H:%M:%S')
             response += f"\n\n*Last Scan:* {scan_time}"
         
-        # Send response
-        respond(response)
+        # Send response with proper formatting
+        respond({
+            "response_type": "in_channel",
+            "text": response
+        })
     
     except Exception as e:
         logger.error(f"Error handling /documents command: {str(e)}")
-        respond(f"Error retrieving document list: {str(e)}")
+        respond({
+            "response_type": "ephemeral",
+            "text": f"Error retrieving document list: {str(e)}"
+        })
 
 @slack_app.command("/debug")
 def handle_debug_command(ack, body, respond):

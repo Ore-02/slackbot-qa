@@ -22,7 +22,10 @@ handler = SlackRequestHandler(slack_app)
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
     """Endpoint for handling Slack events"""
-    from flask import request, jsonify
+    from flask import request, jsonify, abort
+    
+    if not request.is_json and request.headers.get('Content-Type') != 'application/x-www-form-urlencoded':
+        abort(415)
     
     # Handle Slack URL verification challenge
     if request.json and request.json.get("type") == "url_verification":
