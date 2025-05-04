@@ -1,3 +1,4 @@
+
 """
 Module for tracking processed PDF files
 """
@@ -6,6 +7,7 @@ import json
 import logging
 
 # Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -16,16 +18,18 @@ class ProcessedFileTracker:
     
     def __init__(self):
         """Initialize the tracker"""
+        self._processed_files = set()
         self.processed_files = {}
         self._load_from_file()
     
     def is_processed(self, file_id):
         """Check if a file has been processed"""
-        return file_id in self.processed_files
+        return file_id in self._processed_files
     
     def mark_as_processed(self, file_id, file_name):
         """Mark a file as processed"""
-        if file_id not in self.processed_files:
+        if file_id not in self._processed_files:
+            self._processed_files.add(file_id)
             self.processed_files[file_id] = {
                 "name": file_name,
                 "timestamp": str(int(os.path.getmtime(PROCESSED_FILES_PATH))) if os.path.exists(PROCESSED_FILES_PATH) else "0"
@@ -36,7 +40,7 @@ class ProcessedFileTracker:
     
     def get_processed_count(self):
         """Get the number of processed files"""
-        return len(self.processed_files)
+        return len(self._processed_files)
     
     def _save_to_file(self):
         """Save processed files to file"""
@@ -57,14 +61,18 @@ class ProcessedFileTracker:
             if os.path.exists(PROCESSED_FILES_PATH):
                 with open(PROCESSED_FILES_PATH, 'r') as f:
                     self.processed_files = json.load(f)
+                    # Initialize the set of processed file IDs
+                    self._processed_files = set(self.processed_files.keys())
                     
                 logger.info(f"Loaded {len(self.processed_files)} processed file records from {PROCESSED_FILES_PATH}")
             else:
                 logger.info(f"No existing processed files record found at {PROCESSED_FILES_PATH}")
                 self.processed_files = {}
+                self._processed_files = set()
         except Exception as e:
             logger.error(f"Error loading processed files: {str(e)}")
             self.processed_files = {}
+            self._processed_files = set()
 
 def get_file_tracker():
     """Get or create a file tracker instance"""
