@@ -1,0 +1,54 @@
+INFO:slack_bot:Bot ID: B08NMH2DHMM
+INFO:processed_files:Loaded 0 processed file records from vector_db/processed_files.json
+INFO:conversation_memory:Loaded conversation memory from vector_db/conversations.json
+INFO:enhanced_vector_store:Loaded 0 documents from vector_db/document_store.json
+ * Serving Flask app 'app'
+ * Debug mode: off
+INFO:werkzeug:WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.31.128.70:5000
+INFO:werkzeug:Press CTRL+C to quit
+INFO:werkzeug:172.31.128.70 - - [04/May/2025 09:29:28] "GET / HTTP/1.1" 200 -
+INFO:slack_bot:Starting scan for existing documents...
+INFO:slack_bot:Scheduling next document scan in 60 minutes
+INFO:slack_bot:Found 21 total document files.
+INFO:slack_bot:Processing PDF 1/21: Job Description _Site Reliability Engineering Intern (2) copy.pdf
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+INFO:enhanced_vector_store:Saved 5 documents to vector_db/document_store.json
+INFO:enhanced_vector_store:Added 5 texts to vector store
+INFO:processed_files:Saved 1 processed file records to vector_db/processed_files.json
+INFO:slack_bot:Processing PDF 2/21: AYANDELE OREOLUWA_Resume_F.pdf
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+INFO:enhanced_vector_store:Saved 10 documents to vector_db/document_store.json
+INFO:enhanced_vector_store:Added 5 texts to vector store
+INFO:processed_files:Saved 2 processed file records to vector_db/processed_files.json
+INFO:slack_bot:Processing PDF 3/21: AYANDELE OREOLUWA_Resume_F.pdf
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+INFO:enhanced_vector_store:Saved 15 documents to vector_db/document_store.json
+INFO:enhanced_vector_store:Added 5 texts to vector store
+INFO:processed_files:Saved 3 processed file records to vector_db/processed_files.json
+INFO:slack_bot:Processing PDF 4/21: AYANDELE OREOLUWA_Resume_F.pdf
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+INFO:enhanced_vector_store:Saved 20 documents to vector_db/document_store.json
+INFO:enhanced_vector_store:Added 5 texts to vector store
+INFO:processed_files:Saved 4 processed file records to vector_db/processed_files.json
+INFO:slack_bot:Processing PDF 5/21: Vision Spring Africa Summit -.pdf
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
+WARNING:pdfminer.pdfpage:CropBox missing from /Page, defaulting to MediaBox
