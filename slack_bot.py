@@ -554,7 +554,8 @@ def handle_clear_documents_command(ack, body, respond):
             file_tracker._save_to_file()
             
             # Clear vector store
-            vector_store.documents.clear()
+            vector_store.documents = []
+            vector_store._build_index()  # Rebuild the index
             vector_store._save_to_file()
             
             respond("Successfully cleared all documents from memory.")
@@ -567,11 +568,17 @@ def handle_clear_documents_command(ack, body, respond):
                     # Remove from tracker
                     del file_tracker.processed_files[file_id]
                     file_tracker._processed_files.remove(file_id)
+                    
+                    # Remove related chunks from vector store
+                    vector_store.documents = [doc for doc in vector_store.documents 
+                                           if doc.get('metadata', {}).get('file_id') != file_id]
                     found = True
             
             if found:
-                # Save changes
+                # Save changes and rebuild index
                 file_tracker._save_to_file()
+                vector_store._build_index()
+                vector_store._save_to_file()
                 respond(f"Successfully removed document containing '{text}' from memory.")
             else:
                 respond(f"No document found containing '{text}'.")
