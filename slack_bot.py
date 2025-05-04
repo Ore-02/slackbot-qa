@@ -537,6 +537,51 @@ def handle_documents_command(ack, body, respond):
             "text": f"Error retrieving document list: {str(e)}"
         })
 
+@slack_app.command("/clear-documents")
+def handle_clear_documents_command(ack, body, respond):
+    """Handle /clear-documents slash command to delete documents from memory"""
+    # Acknowledge the command request
+    ack()
+    
+    try:
+        # Get the command text
+        text = body.get('text', '').strip().lower()
+        
+        if text == 'all':
+            # Clear all documents
+            file_tracker.processed_files.clear()
+            file_tracker._processed_files.clear()
+            file_tracker._save_to_file()
+            
+            # Clear vector store
+            vector_store.documents.clear()
+            vector_store._save_to_file()
+            
+            respond("Successfully cleared all documents from memory.")
+            
+        elif text:
+            # Get document name to delete
+            found = False
+            for file_id, file_info in list(file_tracker.processed_files.items()):
+                if text in file_info['name'].lower():
+                    # Remove from tracker
+                    del file_tracker.processed_files[file_id]
+                    file_tracker._processed_files.remove(file_id)
+                    found = True
+            
+            if found:
+                # Save changes
+                file_tracker._save_to_file()
+                respond(f"Successfully removed document containing '{text}' from memory.")
+            else:
+                respond(f"No document found containing '{text}'.")
+        else:
+            respond("Usage:\n• `/clear-documents all` - Clear all documents\n• `/clear-documents <name>` - Clear specific document")
+            
+    except Exception as e:
+        logger.error(f"Error handling /clear-documents command: {str(e)}")
+        respond(f"Error clearing documents: {str(e)}")
+
 @slack_app.command("/debug")
 def handle_debug_command(ack, body, respond):
     """Handle /debug slash command to provide system status"""
