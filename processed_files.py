@@ -5,6 +5,7 @@ Module for tracking processed PDF files
 import os
 import json
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,7 @@ class ProcessedFileTracker:
         """Initialize the tracker"""
         self._processed_files = set()
         self.processed_files = {}
+        self._last_updated = None
         self._load_from_file()
     
     def is_processed(self, file_id):
@@ -45,6 +47,9 @@ class ProcessedFileTracker:
     def _save_to_file(self):
         """Save processed files to file"""
         try:
+            # Update last updated timestamp
+            self._last_updated = time.time()
+            
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(PROCESSED_FILES_PATH), exist_ok=True)
             
