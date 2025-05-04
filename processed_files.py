@@ -22,20 +22,50 @@ class ProcessedFileTracker:
         self._processed_files = set()
         self.processed_files = {}
         self._last_updated = None
+        self._content_hashes = set()
+        self._file_paths = set()
         self._load_from_file()
+
+    def calculate_hash(self, file_path):
+        """Calculate SHA-256 hash of file content"""
+        import hashlib
+        try:
+            with open(file_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except Exception as e:
+            logger.error(f"Error calculating hash for {file_path}: {str(e)}")
+            return None
     
-    def is_processed(self, file_id):
+    def is_processed(self, file_id, file_path=None, content_hash=None):
         """Check if a file has been processed"""
-        return file_id in self._processed_files
+        # Check by file ID
+        if file_id in self._processed_files:
+            return True
+            
+        # Check by content hash if provided
+        if content_hash and content_hash in self._content_hashes:
+            return True
+            
+        # Check by file path if provided
+        if file_path and file_path in self._file_paths:
+            return True
+            
+        return False
     
-    def mark_as_processed(self, file_id, file_name):
+    def mark_as_processed(self, file_id, file_name, file_path=None, content_hash=None):
         """Mark a file as processed"""
-        if file_id not in self._processed_files:
+        if not self.is_processed(file_id, file_path, content_hash):
             self._processed_files.add(file_id)
             self.processed_files[file_id] = {
                 "name": file_name,
+                "path": file_path,
+                "content_hash": content_hash,
                 "timestamp": str(int(os.path.getmtime(PROCESSED_FILES_PATH))) if os.path.exists(PROCESSED_FILES_PATH) else "0"
             }
+            if content_hash:
+                self._content_hashes.add(content_hash)
+            if file_path:
+                self._file_paths.add(file_path)
             self._save_to_file()
             return True
         return False
