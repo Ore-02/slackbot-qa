@@ -145,9 +145,10 @@ def handle_file_shared(event, say):
         file_path = download_document(file["url_private"], file_id, file_name)
         if file_path:
             # Process silently without sending notifications
+            content_hash = file_tracker.calculate_hash(file_path)
             success = process_document_file(file_path, file_id, file_name)
             if success:
-                file_tracker.mark_as_processed(file_id, file_name)
+                file_tracker.mark_as_processed(file_id, file_name, file_path, content_hash)
 
     except SlackApiError as e:
         logger.error(f"Error handling file shared event: {e}")
@@ -198,9 +199,10 @@ def handle_message_events(body, logger):
             file_path = download_document(file["url_private"], file_id, file_name)
             if file_path:
                 # Process silently without sending notifications
+                content_hash = file_tracker.calculate_hash(file_path)
                 success = process_document_file(file_path, file_id, file_name)
                 if success:
-                    file_tracker.mark_as_processed(file_id, file_name)
+                    file_tracker.mark_as_processed(file_id, file_name, file_path, content_hash)
 
         # If this message only contained files, don't process as a question
         if not text.strip():
@@ -366,7 +368,7 @@ def scan_existing_documents():
         if not SCAN_ENABLED:
             logger.info("Document scanning is disabled")
             return
-            
+
         logger.info("Starting scan for existing documents...")
 
         # Build the types string for all supported file types
@@ -410,14 +412,25 @@ def scan_existing_documents():
 
             try:
                 # Skip files that have already been processed
-                if file_tracker.is_processed(file_id):
-                    logger.info(f"Skipping already processed {file_type.upper()}: {file_name}")
+                try:
+                    # Download file to check content
+                    file_path = download_document(file.get("url_private"), file_id, file_name)
+                    if not file_path:
+                        continue
+
+                    # Calculate content hash
+                    content_hash = file_tracker.calculate_hash(file_path)
+
+                    # Check for duplicates
+                    if file_tracker.is_processed(file_id, file_path, content_hash):
+                        logger.info(f"Skipping duplicate file {file_name} (already processed)")
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                        continue
+                except Exception as e:
+                    logger.error(f"Error checking for duplicates {file_name}: {e}")
                     continue
 
-                # Skip unsupported file types (shouldn't happen, but just in case)
-                if file_type not in SUPPORTED_FILE_TYPES:
-                    logger.info(f"Skipping unsupported file type: {file_type}")
-                    continue
 
                 logger.info(f"Processing {file_type.upper()} {i+1}/{len(all_files)}: {file_name}")
 
@@ -439,7 +452,7 @@ def scan_existing_documents():
                     add_texts_to_vector_store(vector_store, text_chunks, metadata)
 
                     # Mark as processed
-                    file_tracker.mark_as_processed(file_id, file_name)
+                    file_tracker.mark_as_processed(file_id, file_name, file_path, content_hash)
                     processed_count += 1
 
                     # Give the system time to clear memory
@@ -550,42 +563,44 @@ def handle_clear_documents_command(ack, body, respond):
     """Handle /clear-documents slash command to delete documents from memory"""
     # Acknowledge the command request
     ack()
-    
+
     try:
         global SCAN_ENABLED
         # Get the command text
         text = body.get('text', '').strip().lower()
-        
+
         if text == 'all':
             # Clear all documents
             file_tracker.processed_files.clear()
             file_tracker._processed_files.clear()
+            file_tracker._content_hashes.clear()
+            file_tracker._file_paths.clear()
             file_tracker._save_to_file()
-            
+
             # Clear vector store and its file
             vector_store.documents = []
             vector_store._build_index()
             vector_store._save_to_file()
-            
+
             # Clear the storage files
             if os.path.exists("vector_db/document_store.json"):
                 os.remove("vector_db/document_store.json")
             if os.path.exists("vector_db/processed_files.json"):
                 os.remove("vector_db/processed_files.json")
-            
+
             # Disable scanning
             SCAN_ENABLED = False
-            
+
             respond("Successfully cleared all documents from memory and disabled auto-scanning. Use `/clear-documents scan-on` to re-enable scanning.")
-            
+
         elif text == 'scan-on':
             SCAN_ENABLED = True
             respond("Document scanning enabled. Documents will be ingested on next scan.")
-            
+
         elif text == 'scan-off':
             SCAN_ENABLED = False
             respond("Document scanning disabled. Documents will not be automatically ingested.")
-            
+
         elif text:
             # Get document name to delete
             found = False
@@ -594,12 +609,17 @@ def handle_clear_documents_command(ack, body, respond):
                     # Remove from tracker
                     del file_tracker.processed_files[file_id]
                     file_tracker._processed_files.remove(file_id)
-                    
+                    if file_info.get('path'):
+                        file_tracker._file_paths.remove(file_info['path'])
+                    if file_info.get('content_hash'):
+                        file_tracker._content_hashes.remove(file_info['content_hash'])
+
+
                     # Remove related chunks from vector store
                     vector_store.documents = [doc for doc in vector_store.documents 
                                            if doc.get('metadata', {}).get('file_id') != file_id]
                     found = True
-            
+
             if found:
                 # Save changes and rebuild index
                 file_tracker._save_to_file()
@@ -610,7 +630,7 @@ def handle_clear_documents_command(ack, body, respond):
                 respond(f"No document found containing '{text}'.")
         else:
             respond("Usage:\n• `/clear-documents all` - Clear all documents\n• `/clear-documents <name>` - Clear specific document")
-            
+
     except Exception as e:
         logger.error(f"Error handling /clear-documents command: {str(e)}")
         respond(f"Error clearing documents: {str(e)}")
