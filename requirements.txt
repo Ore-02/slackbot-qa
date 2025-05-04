@@ -1,0 +1,9 @@
+gunicorn==21.2.0
+flask
+google-generativeai
+langchain-core
+pdfplumber
+python-dotenv
+requests
+slack-bolt
+slack-sdk

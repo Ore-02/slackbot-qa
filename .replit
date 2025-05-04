@@ -1,5 +1,5 @@
 modules = ["python-3.11"]
-run = "run = \"python main.py\""
+run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
 
 [nix]
 channel = "stable-24_05"
@@ -10,7 +10,7 @@ deploymentTarget = "autoscale"
 run = ["sh", "-c", "python main.py"]
 
 [workflows]
-runButton = "Start Flask App"
+runButton = "Run App"
 
 [[workflows.workflow]]
 name = "Project"
@@ -38,6 +38,15 @@ waitForPort = 5000
 
 [[workflows.workflow]]
 name = "Start Flask App"
+author = 6157073
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
+
+[[workflows.workflow]]
+name = "Run App"
 author = 6157073
 mode = "sequential"
 
