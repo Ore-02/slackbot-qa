@@ -1,147 +1,140 @@
-# PDF Q&A Slackbot
+## Slack Bot for Document Processing
+A Python-based Slackbot that automatically processes documents shared in channels, providing instant answers and reference citations based on file content.
 
-A Python-based Slackbot that monitors PDF uploads, embeds their content in a vector database, and answers user questions using Google's Gemini 1.5 Flash model.
 
-## Features
 
-- **Automatic PDF monitoring**: Detects PDF uploads across the entire Slack workspace
-- **Content extraction**: Extracts and processes text from PDFs using pdfplumber
-- **Text storage and search**: Stores documents with metadata and implements keyword-based search
-- **Question answering**: Answers user questions by finding relevant PDF content
-- **AI-powered responses**: Uses Google's Gemini 1.5 Flash model to generate high-quality answers
-- **Source references**: Provides citations to source PDF documents
-- **Thread support**: Continues conversations in threads for focused discussions
-- **Direct message support**: Answers questions in DMs for private queries
-- **Silent processing**: Processes PDFs in the background without notifications
-- **Duplicate prevention**: Tracks processed files to avoid duplicate processing
-- **Complete workspace scanning**: Indexes all existing PDFs on startup
-- **Challenge response handling**: Properly handles Slack's URL verification challenges
-
-## Setup Instructions
-
-### Prerequisites
-
-- A Slack workspace with permission to add apps
-- Google API key for Gemini API access
-- Python 3.10+ environment
-
-### Step 1: Create a Slack App
-
-1. Go to [https://api.slack.com/apps](https://api.slack.com/apps) and click "Create New App"
-2. Choose "From scratch", provide a name (e.g., "PDF Q&A Bot"), and select your workspace
-3. Under "OAuth & Permissions", add the following scopes:
-   - `app_mentions:read`: Listen for @mentions
-   - `chat:write`: Send messages in channels
-   - `files:read`: Access files uploaded to Slack
-   - `im:history`, `im:write`: Read and write in direct messages
-   - `channels:history`: Read channel messages
-   - `commands`: Add slash commands (optional)
-4. Install the app to your workspace
-5. Copy the "Bot User OAuth Token" (starts with `xoxb-`) and the "Signing Secret"
-
-### Step 2: Set Up Environment Variables
-
-Create a `.env` file in the project root using `.env.example` as a template:
-
-```
-# Slack Credentials
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_SIGNING_SECRET=your-signing-secret
-
-# Google AI Credentials 
-GOOGLE_API_KEY=your-google-api-key
-
-# Flask Session Secret
-SESSION_SECRET=your-session-secret
-```
-
-### Step 3: Configure Event Subscriptions
-
-1. Deploy the application to a server with a public URL
-2. In your Slack App settings, go to "Event Subscriptions" and enable events
-3. Set the Request URL to `https://your-domain.com/slack/events`
-   - The application automatically handles Slack's URL verification challenge
-   - If verification fails, ensure your server is publicly accessible and returning responses correctly
-4. Subscribe to the following bot events:
-   - `app_mention`
-   - `message.im`
-   - `file_shared`
-   - `message.channels`
-
-### Step 4: Run the Application
+## Installation 
+Ensure you have Python 3.10+ installed. Clone the repository and install dependencies:
 
 ```bash
-# Install dependencies
+git clone https://github.com/your-org/pdf-qa-slackbot.git
+cd pdf-qa-slackbot
 pip install -r requirements.txt
+```
 
-# Start the application
+---
+
+## Configuration
+1. **Create a `.env` file** in the project root based on `.env.example`:
+   ```dotenv
+   # Slack Credentials
+   SLACK_BOT_TOKEN=xoxb-your-bot-token
+   SLACK_SIGNING_SECRET=your-signing-secret
+
+   # Google AI Credentials
+   GOOGLE_API_KEY=your-google-api-key
+
+   # Flask Session Secret
+   SESSION_SECRET=your-session-secret
+   ```
+2. **Slack App Setup** (if not already):
+   - Go to https://api.slack.com/apps → **Create New App** → From scratch → choose a name and workspace.
+   - Under **OAuth & Permissions**, add scopes:
+     - `app_mentions:read`
+     - `chat:write`
+     - `files:read`
+     - `im:history`, `im:write`
+     - `channels:history`
+   - Enable **Event Subscriptions**:
+     - Request URL: `https://<your-domain>/slack/events`
+     - Subscribe to events: `app_mention`, `message.im`, `file_shared`, `message.channels`.
+   - Install the app and copy **Bot User OAuth Token** & **Signing Secret** into `.env`.
+
+---
+
+## Usage
+Run the application:
+
+```bash
 python main.py
 ```
 
-## Using the Bot
+### Processing Documents
+The bot automatically processes supported files silently (no channel notifications) in these scenarios:
+- When a file is shared in a channel where the bot is present.
+- When a file is uploaded directly to a channel where the bot is present.
+- On startup, the bot scans and indexes all existing files in the workspace.
 
-### Processing PDFs
-
-The bot automatically processes PDFs in these scenarios (silently, without sending notifications):
-1. When a PDF is shared in a channel where the bot is present
-2. When a PDF is uploaded directly to a channel where the bot is present
-3. When the bot starts, it scans for all existing PDFs in the workspace
-
-The bot tracks which files have been processed to avoid duplicate processing, allowing efficient incremental updates over time.
+Processed file IDs are tracked to prevent duplicate indexing and allow efficient incremental updates.
 
 ### Asking Questions
+You can query the bot in three ways:
+1. **Channel Mention**:
+   ```
+   @bot-name What are our core values?
+   ```
+2. **Direct Message**:
+   ```
+   What is the product roadmap timeline?
+   ```
+3. **Thread Reply**:
+   ```
+   (In thread) Can you provide more details on the SRE requirements?
+   ```
+The bot will search the indexed content, generate an answer via Gemini 1.5 Flash, and include source references linking back to the original document chunks.
 
-You can ask questions in three ways:
+---
 
-1. **Channel Mentions**: Mention the bot in any channel:
-   ```
-   @pdfbot What are the key qualifications for the SRE role?
-   ```
+## Supported File Types
+- PDF
+- DOCX
+- TXT
+- MD
+- XLSX
 
-2. **Direct Messages**: Send a question directly to the bot:
-   ```
-   What is the expected timeline for the project?
-   ```
+---
 
-3. **Thread Replies**: Reply in a thread where the bot is active:
-   ```
-   Can you provide more details about the requirements?
-   ```
+## Features
+- **Automatic Document Monitoring**: Detects new files across all channels where installed.
+- **Content Extraction**: Uses `pdfplumber` for PDFs and native parsers for other formats.
+- **Vector Embeddings & Search**: Stores document chunks with metadata for similarity and keyword search.
+- **AI-Powered Answers**: Leverages Google Gemini 1.5 Flash for high-quality responses.
+- **Source Citations**: Provides inline citations pointing to document origins.
+- **Thread & DM Support**: Keeps conversations organized and private queries separate.
+- **Silent Processing**: Indexes files without generating Slack notifications.
+- **Duplicate Prevention**: Tracks processed file IDs to avoid re-indexing.
+- **Complete Workspace Scanning**: Indexes all historical files on startup.
+- **Slack Challenge Handling**: Automatically responds to Slack URL verification.
 
-The bot will:
-1. Search for relevant content in the indexed PDFs
-2. Generate a comprehensive answer using Gemini
-3. Provide source references to the PDF documents
+---
 
 ## Architecture
+**Components:**
+- **Flask Server (`app.py`)**: Handles incoming Slack events & verification.
+- **Slack Bot (`slack_bot.py`)**: Core logic for message handling.
+- **PDF Processor (`pdf_processor.py`)**: Extracts and chunks PDF text.
+- **Vector Store (`vector_store.py`)**: Manages embeddings & similarity search.
+- **Processed Files (`processed_files.py`)**: Tracks what’s been indexed.
+- **Gemini Client (`gemini_client.py`)**: Interfaces with Google’s AI API.
 
-### Components
+**Data Flow:**
+1. User uploads or mentions.  
+2. Slack Events API → Flask endpoint.  
+3. File text extraction & embedding.  
+4. Query triggers search & AI generation.  
+5. Bot replies with answers + citations.
 
-- **Flask App (`app.py`)**: HTTP server that handles Slack events
-- **Slack Bot (`slack_bot.py`)**: Core logic for Slack interactions and message handling
-- **PDF Processor (`pdf_processor.py`)**: Extracts and chunks text from PDF files
-- **Vector Store (`vector_store.py`)**: Manages document storage and similarity search
-- **Processed Files (`processed_files.py`)**: Tracks processed PDFs to avoid duplication
-- **Gemini Client (`gemini_client.py`)**: Interface with Google's Generative AI
+---
 
-### Data Flow
+## Logging
+- Info logs for file processing (filename, ID, timestamp).
+- Error logs for exceptions in extraction, embedding, or API calls.
+- Logs written to stdout by default; can be redirected to files via standard tooling.
 
-1. User uploads a PDF or asks a question
-2. Slack events API sends an event to the Flask server
-3. PDF files are processed, chunked, and stored in a simple document store
-4. For questions, relevant chunks are retrieved using keyword matching
-5. Gemini model generates an answer based on the relevant content
-6. Response is sent back to the user in Slack
+---
 
 ## Troubleshooting
+- **Bot not responding**: Verify event subscriptions & OAuth scopes.  
+- **File extraction errors**: Check logs for stack traces; confirm file type support.  
+- **Answer quality issues**: Adjust chunk size/overlap in `pdf_processor.py` or tweak prompt templates.
 
-- **Bot not responding**: Ensure all event subscriptions are configured correctly
-- **PDF processing errors**: Check the server logs for specific error messages
-- **Answer quality issues**: You may need to adjust the chunk size or overlap parameters
+---
 
 ## Future Enhancements
+- Support additional formats (e.g., PPTX, CSV).  
+- Expand Data Sources  
+- Build a web UI dashboard for managing indexed documents.  
 
-- Support for more document formats (DOCX, TXT, etc.)
-- Conversation history for more context-aware responses
-- Custom embedding models for domain-specific applications
-- Document management UI for tracking indexed documents
+
+---
+
